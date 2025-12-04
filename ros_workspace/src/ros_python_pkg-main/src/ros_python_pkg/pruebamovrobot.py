@@ -8,6 +8,8 @@ from geometry_msgs.msg import Pose, Point, PoseStamped
 from tf.transformations import quaternion_from_euler
 from typing import List
 import yaml
+from math import pi
+import copy
 
 class ControlRobot:
     def __init__(self) -> None:
@@ -67,11 +69,20 @@ if __name__ == '__main__':
     control = ControlRobot()
     
     # Mover el robot a posición inicial con articulaciones
-    from math import pi
+   
     control.mover_articulaciones([0, -pi/2, -pi/2, -pi/2, pi/2, 0])
     
     # Pose inicial del efector
     pose_inicio = control.pose_actual()
+    articulaciones = control.articulaciones_actuales()
+    
+  
+    nombre = "Pose ARUCO"
+    with open("./src/ros_python_pkg-main/src/ros_python_pkg/posiciones.yaml", "+a") as file:
+        # yaml.dump(pose_dict, file)
+        yaml.dump([{nombre:{"pose":pose_inicio,"articulaciones":articulaciones}}], file)
+
+    print("Posición inicial guardada en posiciones.yaml")
     
     # Pose final (movimiento en línea recta)
     pose_final = copy.deepcopy(pose_inicio)
