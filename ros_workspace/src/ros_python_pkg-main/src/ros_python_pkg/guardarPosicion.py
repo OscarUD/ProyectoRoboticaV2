@@ -88,6 +88,6 @@ if __name__ == '__main__':
     }
 
     # Guardar articulaciones y pose como diccionario
-    nombre = "pose_abaco_azul"
+    nombre = "ficha_roja"
     with open("./src/ros_python_pkg-main/src/ros_python_pkg/posiciones.yaml", "a") as file:
         yaml.dump([{nombre: {"pose": pose_dict, "articulaciones": articulaciones}}], file)

@@ -13,7 +13,7 @@ from typing import List
 import yaml
 from math import pi
 import copy
-
+import math
 
 
 class ControlRobot:
@@ -43,6 +43,8 @@ class ControlRobot:
             '/coordenadasAzules', PoseArray, self.callback_azules
         )
         
+        ##self.ganador = rospy.Subscriber('/ganador', Int16, self.callback_ganador)
+        
  
         self.añadir_suelo()
         
@@ -54,6 +56,19 @@ class ControlRobot:
     def callback_azules(self, msg: PoseArray):
         self.blue_pose_array = msg.poses
         self.recibidas_azules = True
+        
+    def callback_ganador(self, msg):
+        """ Recibe ganador de ronda (1=jugador1, 2=jugador2)"""
+        ganador = msg.data
+        
+        if ganador == 1:
+            rospy.loginfo("¡JUGADOR 1 GANA RONDA! → Mover ficha ROJA")
+            #self.mover_ficha_jugador1()  #  Mueve ficha roja
+        elif ganador == 2:
+            rospy.loginfo("¡JUGADOR 2 GANA RONDA! → Mover ficha AZUL") 
+            #self.mover_ficha_jugador2()  #  Mueve ficha azul
+        else:
+            rospy.loginfo("Empate - Sin movimiento")
         
     def esperar_y_mostrar_coordenadas(self, posAruco: Pose):
         rospy.loginfo("Esperando coordenadas de fichas...")
@@ -71,26 +86,59 @@ class ControlRobot:
         if self.red_pose_array:
             print("🔴 Fichas rojas:")
             for i, pose in enumerate(self.red_pose_array):
-                control.mover_trayectoria([posAruco])
                 roja = copy.deepcopy(posAruco)
-                roja.position.x += pose.position.x
-                roja.position.y += pose.position.y
-                roja.position.z = 0.15
-                control.generar_trayectoria_lineal(posAruco, roja)
+                
+                roja.position.x += pose.position.y * math.sin(math.radians(101.4))
+                roja.position.y += pose.position.x * math.cos(math.radians(101.4))
+                control.mover_trayectoria([roja])
+                self.pose_actual()
+                control.mover_trayectoria([posAruco])
                 print(f"  Roja {i+1}: x={pose.position.x:}, y={pose.position.y:}")
         
         if self.blue_pose_array:
             print("🔵 Fichas azules:")
        
             for i, pose in enumerate(self.blue_pose_array):
-                control.mover_trayectoria([posAruco])
                 azul = copy.deepcopy(posAruco)
-                azul.position.x += pose.position.x
-                azul.position.y += pose.position.y
-                control.generar_trayectoria_lineal(posAruco, roja)
+                azul.position.x += pose.position.y * math.sin(math.radians(101.4))
+                azul.position.y += pose.position.x * math.cos(math.radians(101.4))
+                control.mover_trayectoria([azul])
+                control.mover_trayectoria([posAruco])
                 print(f"  Azul {i+1}: x={pose.position.x:}, y={pose.position.y:}")
 
         print("==============================\n")
+
+    
+    import math
+
+    def desplazamiento_corregido(x, y, destino_x, destino_y):
+        """
+        Calcula el desplazamiento en x e y considerando el ángulo entre X y Y.
+        
+        Args:
+            x, y: Coordenadas del punto actual (X)
+            destino_x, destino_y: Coordenadas del punto objetivo (Y)
+        
+        Returns:
+            dx, dy: Desplazamiento corregido en x e y
+            distancia: distancia lineal entre X y Y
+            angulo: ángulo entre X->Y en radianes
+        """
+        # Vector de X a Y
+        vx = destino_x - x
+        vy = destino_y - y
+        
+        # Distancia lineal
+        distancia = math.sqrt(vx**2 + vy**2)
+        
+        # Ángulo del vector
+        angulo = math.atan2(vy, vx)  # devuelve en radianes
+        
+        # Desplazamiento corregido en dirección del ángulo
+        dx = distancia * math.cos(angulo)
+        dy = distancia * math.sin(angulo)
+        
+        return dx, dy, distancia, angulo
 
 
 
@@ -205,10 +253,14 @@ if __name__ == '__main__':
     with open("./src/ros_python_pkg-main/src/ros_python_pkg/posiciones.yaml", "r") as file:
         data = yaml.safe_load(file)
     
-    arts_aruco =  [1.0049527883529663, -1.0491498869708558, 0.8802011648761194, -1.3895794463208695, -1.5648420492755335, -0.7018120924579065]
+    arts_aruco =  [ 0.9880185723304749,-1.0183254045299073,0.8567770163165491,-1.3970807504704972,-1.5649641195880335,-0.7185929457293909]
     pose_aruco = data[0]["pose_aruco"]
     pose_aruco_dict = pose_aruco["pose"]
     posAruco = control.dict_a_pose(pose_aruco_dict)
+    fueraAruco = copy.deepcopy(posAruco)
+    #fueraAruco.position.x -= 0.05
+    fueraAruco.position.y -= 0.05
+    control.mover_trayectoria([fueraAruco])
     control.mover_articulaciones(arts_aruco)
     
     #control.mover_pinza(20, 20)
