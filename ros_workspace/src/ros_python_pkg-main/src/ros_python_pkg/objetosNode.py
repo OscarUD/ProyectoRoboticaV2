@@ -54,6 +54,19 @@ class GestosNode:
         self.numFramesEstables = 60  
         self.enviar1vez = True
 
+        # Corrección lineal de Y hacia el ArUco 7
+        try:
+            bx = rospy.get_param("~baseline_x_cm", 38.0)
+            by = rospy.get_param("~baseline_y_cm", 15.5)
+            y_bias = rospy.get_param("~y_bias_at_id7_cm", 1.0)  # +1 cm por defecto; ajusta signo según error
+            enable_corr = rospy.get_param("~enable_y_correction", True)
+        except Exception:
+            bx, by, y_bias, enable_corr = 38.0, 15.5, 1.0, True
+
+        self.baseline_cm = np.array([bx, by], dtype=np.float32)
+        self.y_bias_at_id7_cm = float(y_bias)
+        self.enable_y_correction = bool(enable_corr)
+
 
         # Inicializar cámara
         #self.cap = cv2.VideoCapture(0)
@@ -234,12 +247,12 @@ class GestosNode:
 
     def _obtener_coordenadas_cm(self, centers, escala, aruco_center):
         """
-        Convierte una lista de centros en píxeles a coordenadas en CM relativas al ArUco.
+        Convierte una lista de centros en píxeles a coordenadas en CM relativas al ArUco 23.
         
         Args:
             centers: Lista de tuplas (x, y) en píxeles o None
             escala: Factor de conversión píxel-a-cm
-            aruco_center: Centro del ArUco en píxeles
+            aruco_center: Centro del ArUco 23 en píxeles
             
         Returns:
             Array Nx2 con coordenadas [X, Y] en CM, o None si no hay centros válidos
@@ -249,7 +262,7 @@ class GestosNode:
         
         coords_cm = []
         for center_px in centers:
-            # Calcular offset relativo desde el centro del ArUco
+            # Calcular offset relativo desde el centro del ArUco 23
             dx_px = center_px[0] - aruco_center[0]
             dy_px = center_px[1] - aruco_center[1]
             # Convertir a CM
@@ -298,6 +311,29 @@ class GestosNode:
         blue_coords_cm = self._obtener_coordenadas_cm(blue_centers, escala, aruco_center)
         
         return undistorted, red_coords_cm, blue_coords_cm
+
+    def _aplicar_correccion_lineal_y(self, coords_cm):
+        """
+        Corrige Y linealmente: 0 cm en ArUco 23, y_bias_at_id7_cm en ArUco 7.
+        Proyección del punto sobre la recta 23->7 en cm para escalar la corrección.
+        """
+        if coords_cm is None or len(coords_cm) == 0 or not self.enable_y_correction:
+            return coords_cm
+
+        b = self.baseline_cm.astype(np.float32)
+        L = float(np.linalg.norm(b))
+        if L < 1e-6:
+            return coords_cm
+
+        u = b / L  # unitario
+        out = []
+        for x_cm, y_cm in coords_cm:
+            proj_len = x_cm * u[0] + y_cm * u[1]  # cm
+            t = max(0.0, min(1.0, proj_len / L))  # fracción 0..1
+            y_corr = y_cm + t * self.y_bias_at_id7_cm
+            out.append([x_cm, y_corr])
+
+        return np.array(out, dtype=np.float32)
 
     def array_to_pose_array(self, coords):
         pose_array = PoseArray()
@@ -349,7 +385,7 @@ class GestosNode:
             
             if juego == 1:
                 undistorted, all_dist_red_cm, all_dist_blue_cm, red_centers, blue_centers, escala, aruco_center = detectar_distancia_objetos(
-                    undistorted, escala_cm=5.0
+                    undistorted, escala_cm=5.0, distancia_real_entre_arucos_cm=41.04
                 )
 
                 if aruco_center is not None:
@@ -358,11 +394,15 @@ class GestosNode:
                 undistorted, red_coords_cm, blue_coords_cm = self._procesar_objetos(
                     undistorted, red_centers, blue_centers, escala, aruco_center
                 )
+
+                # Corrección lineal de Y proporcional a la distancia 23->7
+                red_coords_cm = self._aplicar_correccion_lineal_y(red_coords_cm)
+                blue_coords_cm = self._aplicar_correccion_lineal_y(blue_coords_cm)
                 
                 # Imprimir coordenadas solo cuando sean estables (después de 10 frames)
                 if self.estable_count >= 10 and self.enviar1vez:
-                    print("Red Coords (cm):", red_coords_cm)
-                    print("Blue Coords (cm):", blue_coords_cm)
+                    print("Red Coords (cm, Y corregido):", red_coords_cm)
+                    print("Blue Coords (cm, Y corregido):", blue_coords_cm)
                     # Convertir y publicar coordenadas rojas
                     msgR = self.array_to_pose_array(red_coords_cm)
                     self.pub_coordenadasRojas.publish(msgR)
