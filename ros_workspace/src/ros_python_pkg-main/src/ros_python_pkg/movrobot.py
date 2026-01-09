@@ -72,13 +72,27 @@ class ControlRobot:
         
     def esperar_y_mostrar_coordenadas(self, posAruco: Pose):
         rospy.loginfo("Esperando coordenadas de fichas...")
-
+        juego = "cubos"
+        contadorR = 0
+        contadorA = 0
+        arts_aruco =  [0.9992761611938477,-1.0477239054492493,0.9035361448871058,-1.41451849163089,-1.5649026075946253,-0.707092587147848]
+        arts_torre_azul =  [ 2.0560805797576904,1.471076452439167,1.4115451017962855,-1.5421768252602597,-1.5916088263141077,0.3771408796310425]
+        
+        pose_torre_azul = data[5]["torre_azul"]
+        pose_torre_azul_dict = pose_torre_azul["pose"]
+        pos_tAzul = control.dict_a_pose(pose_torre_azul_dict)
+        
         rate = rospy.Rate(10)
         while not rospy.is_shutdown():
             if self.recibidas_rojas and self.recibidas_azules:
                 break
             rate.sleep()
 
+        if juego == "cubos":
+            movPinza = 0.06
+        else:
+            movPinza = 0.072
+        
         print("\n==============================")
         print("📍 Coordenadas recibidas")
         print("==============================")
@@ -86,24 +100,78 @@ class ControlRobot:
         if self.red_pose_array:
             print("🔴 Fichas rojas:")
             for i, pose in enumerate(self.red_pose_array):
+                control.mover_articulaciones(arts_aruco)
                 roja = copy.deepcopy(posAruco)
-                
-                roja.position.x += pose.position.y * math.sin(math.radians(101.4))
-                roja.position.y += pose.position.x * math.cos(math.radians(101.4))
+                roja.position.x -= pose.position.x 
+                print(pose.position.x )
+                # Corrección Y proporcional a la distancia hacia el QR 7 (máx 1 cm)
+                bx, by = 0.38, 0.155  # baseline 23->7 en metros (38 cm, 15.5 cm)
+                L = math.hypot(bx, by)
+                ux, uy = bx / L, by / L
+                proj = ux * pose.position.x + uy * pose.position.y
+                t = max(0.0, min(1.0, proj / L))
+                bias = -0.052
+                y_corr = pose.position.y + bias * t
+                roja.position.y += y_corr
+                print(y_corr)
                 control.mover_trayectoria([roja])
-                self.pose_actual()
-                control.mover_trayectoria([posAruco])
+                control.mover_pinza(60, 10)
+                roja.position.z -= movPinza
+                control.mover_trayectoria([roja])
+                control.mover_pinza(5, 10)
+                roja.position.z += movPinza
+                control.mover_trayectoria([roja])
+                
+                if juego == "cubos":
+                    control.mover_articulaciones(arts_aruco)
+                else:
+                    control.mover_articulaciones(arts_aruco)
+                control.mover_pinza(60, 10)
+                contadorR += 1
                 print(f"  Roja {i+1}: x={pose.position.x:}, y={pose.position.y:}")
         
         if self.blue_pose_array:
             print("🔵 Fichas azules:")
-       
+            for i, pose in enumerate(self.blue_pose_array):
+                print(f"  Azul {i+1}: x={pose.position.x:}, y={pose.position.y:}")
+                
             for i, pose in enumerate(self.blue_pose_array):
                 azul = copy.deepcopy(posAruco)
-                azul.position.x += pose.position.y * math.sin(math.radians(101.4))
-                azul.position.y += pose.position.x * math.cos(math.radians(101.4))
+                azul.position.x -= pose.position.x 
+                # Corrección Y proporcional a la distancia hacia el QR 7 (máx 1 cm)
+                bx, by = 0.38, 0.155  # baseline 23->7 en metros (38 cm, 15.5 cm)
+                L = math.hypot(bx, by)
+                ux, uy = bx / L, by / L
+                proj = ux * pose.position.x + uy * pose.position.y
+                t = max(0.0, min(1.0, proj / L))
+                bias = -0.052
+                y_corr = pose.position.y + bias * t
+                azul.position.y += y_corr 
                 control.mover_trayectoria([azul])
-                control.mover_trayectoria([posAruco])
+                rospy.sleep(1)
+                control.mover_pinza(60, 10)
+                rospy.sleep(1)
+                azul.position.z -= movPinza
+                control.mover_trayectoria([azul])
+                rospy.sleep(1)
+                control.mover_pinza(5, 10)
+                rospy.sleep(1)
+                azul.position.z += movPinza
+                control.mover_trayectoria([azul])
+                rospy.sleep(1)
+                if juego == "cubos":
+                    control.mover_trayectoria([pos_tAzul])
+                    rospy.sleep(1)
+                    pos = self.pose_actual()
+                    pos.position.z -= 0.077 - contadorA*0.025
+                    control.mover_trayectoria([pos])
+                    rospy.sleep(1)
+                else:
+                    control.mover_articulaciones(arts_aruco)
+                    rospy.sleep(1)
+                control.mover_pinza(60, 10)
+                rospy.sleep(1)
+                contadorA += 1
                 print(f"  Azul {i+1}: x={pose.position.x:}, y={pose.position.y:}")
 
         print("==============================\n")
@@ -253,15 +321,27 @@ if __name__ == '__main__':
     with open("./src/ros_python_pkg-main/src/ros_python_pkg/posiciones.yaml", "r") as file:
         data = yaml.safe_load(file)
     
-    arts_aruco =  [ 0.9880185723304749,-1.0183254045299073,0.8567770163165491,-1.3970807504704972,-1.5649641195880335,-0.7185929457293909]
+    arts_aruco =  [0.9992761611938477,-1.0477239054492493 ,0.9035361448871058,-1.41451849163089 ,-1.5649026075946253, -0.707092587147848]
+        
     pose_aruco = data[0]["pose_aruco"]
+    pose_caja1 = data[1]["pose_caja1"]
+    pose_caja2 = data[2]["pose_caja2"]
+    
     pose_aruco_dict = pose_aruco["pose"]
+    pose_caja1_dict = pose_caja1["pose"]
+    pose_caja2_dict = pose_caja2["pose"]
+    
+    pos1 = control.dict_a_pose(pose_caja1_dict)
+    pos2 = control.dict_a_pose(pose_caja2_dict)
+    
+    control.añadir_caja_a_escena_de_planificacion(pos1, "caja1", (2,.1,.4))
+    control.añadir_caja_a_escena_de_planificacion(pos2, "caja2", (.05,.08,.8))
+    
     posAruco = control.dict_a_pose(pose_aruco_dict)
-    fueraAruco = copy.deepcopy(posAruco)
-    #fueraAruco.position.x -= 0.05
-    fueraAruco.position.y -= 0.05
-    control.mover_trayectoria([fueraAruco])
-    control.mover_articulaciones(arts_aruco)
+   
+    #control.mover_pinza(60, 10)
+    #control.mover_pinza(0, 10)
+    #control.mover_articulaciones(arts_aruco)
     
     #control.mover_pinza(20, 20)
     control.esperar_y_mostrar_coordenadas(posAruco)
@@ -269,6 +349,11 @@ if __name__ == '__main__':
     '''
     with open("./src/ros_python_pkg-main/src/ros_python_pkg/posiciones.yaml", "r") as file:
         data = yaml.safe_load(file)
+    
+    fueraAruco = copy.deepcopy(posAruco)
+    fueraAruco.position.x -= 0.05
+    fueraAruco.position.y -= 0.05
+    control.mover_trayectoria([fueraAruco])
     
     pose_aruco = data[0]["pose_aruco"]
     pose_caja1 = data[1]["pose_caja1"]
