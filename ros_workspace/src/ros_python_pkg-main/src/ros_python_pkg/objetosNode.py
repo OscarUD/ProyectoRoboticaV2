@@ -44,6 +44,7 @@ class GestosNode:
          #publicaciones
         self.pub_coordenadasRojas = rospy.Publisher("/coordenadasRojas", PoseArray, queue_size=10)
         self.pub_coordenadasAzules = rospy.Publisher("/coordenadasAzules", PoseArray, queue_size=10)
+        self.pub_coordenadasVerdes = rospy.Publisher("/coordenadasVerdes", PoseArray, queue_size=10)
 
 
         self.last_stable_centers = []
@@ -103,7 +104,7 @@ class GestosNode:
             self.estable_count = 0
             return 0.0, False
 
-    def _generar_lista_centros(self, red_centers, blue_centers):
+    def _generar_lista_centros(self, red_centers, blue_centers, green_centers):
         """
         Agrupa centros rojos y azules en una lista única y ordenada.
         
@@ -121,6 +122,9 @@ class GestosNode:
         if blue_centers is not None:
             for center in blue_centers:
                 current_centers.append(('B', center[0], center[1]))
+        if green_centers is not None:
+            for center in green_centers:
+                current_centers.append(('G', center[0], center[1]))
         current_centers.sort()
         return current_centers
 
@@ -222,7 +226,7 @@ class GestosNode:
         
         return coords_str
 
-    def _imprimir_coordenadas_estables(self, red_centers, blue_centers, escala, aruco_center):
+    def _imprimir_coordenadas_estables(self, red_centers, blue_centers, green_centers, escala, aruco_center):
         """
         Imprime las coordenadas estables en formato legible.
         Se llama cuando se alcanzan 60 frames con centros estables (dentro de tolerancia).
@@ -235,6 +239,8 @@ class GestosNode:
         """
         red_coords_str = self._formato_coordenadas_cm(red_centers, "Rojo", escala, aruco_center)
         blue_coords_str = self._formato_coordenadas_cm(blue_centers, "Azul", escala, aruco_center)
+        green_coords_str = self._formato_coordenadas_cm(green_centers, "Verde", escala, aruco_center)
+        
         
         #print("\n" + "="*60)
         #print("COORDENADAS VERIFICADAS Y ESTABLES")
@@ -272,7 +278,7 @@ class GestosNode:
         
         return np.array(coords_cm) if coords_cm else None
 
-    def _procesar_objetos(self, undistorted, red_centers, blue_centers, escala, aruco_center):
+    def _procesar_objetos(self, undistorted, red_centers, blue_centers, green_centers, escala, aruco_center):
         """
         Procesa la lógica completa de detección, estabilidad e impresión de objetos.
         
@@ -280,6 +286,7 @@ class GestosNode:
             undistorted: Imagen corregida
             red_centers: Lista de centros rojos
             blue_centers: Lista de centros azules
+            green_centers: Lista de centros verdes
             escala: Factor de conversión píxel-a-cm
             aruco_center: Centro del ArUco detectado
             
@@ -293,7 +300,7 @@ class GestosNode:
         TOLERANCIA_PX, tiene_escala = self._calcular_tolerancia_px(escala)
         
         # 2. Generar lista de centros actual
-        current_centers = self._generar_lista_centros(red_centers, blue_centers)
+        current_centers = self._generar_lista_centros(red_centers, blue_centers, green_centers)
         
         # 3. Comprobar estabilidad
         es_estable = self._comprobar_estabilidad(current_centers, TOLERANCIA_PX)
@@ -303,14 +310,15 @@ class GestosNode:
         
         # 5. Imprimir coordenadas cuando sean estables
         if self.estable_count >= self.numFramesEstables and not self.printed_stable_flag:
-            self._imprimir_coordenadas_estables(red_centers, blue_centers, escala, aruco_center)
+            self._imprimir_coordenadas_estables(red_centers, blue_centers, green_centers, escala, aruco_center)
             self.printed_stable_flag = True
         
         # 6. Obtener arrays de coordenadas en CM
         red_coords_cm = self._obtener_coordenadas_cm(red_centers, escala, aruco_center)
         blue_coords_cm = self._obtener_coordenadas_cm(blue_centers, escala, aruco_center)
+        green_coords_cm = self._obtener_coordenadas_cm(green_centers, escala, aruco_center)
         
-        return undistorted, red_coords_cm, blue_coords_cm
+        return undistorted, red_coords_cm, blue_coords_cm, green_coords_cm
 
     def _aplicar_correccion_lineal_y(self, coords_cm):
         """
@@ -384,25 +392,27 @@ class GestosNode:
             juego = 1
             
             if juego == 1:
-                undistorted, all_dist_red_cm, all_dist_blue_cm, red_centers, blue_centers, escala, aruco_center = detectar_distancia_objetos(
+                undistorted, all_dist_red_cm, all_dist_blue_cm, all_dist_green_cm, red_centers, blue_centers, green_centers, escala, aruco_center = detectar_distancia_objetos(
                     undistorted, escala_cm=5.0, distancia_real_entre_arucos_cm=41.04
                 )
 
                 if aruco_center is not None:
                     dibujar_sistema_coordenadas(undistorted, aruco_center, escala, eje_length_cm=5)
 
-                undistorted, red_coords_cm, blue_coords_cm = self._procesar_objetos(
-                    undistorted, red_centers, blue_centers, escala, aruco_center
+                undistorted, red_coords_cm, blue_coords_cm, green_coords_cm = self._procesar_objetos(
+                    undistorted, red_centers, blue_centers, green_centers, escala, aruco_center
                 )
 
                 # Corrección lineal de Y proporcional a la distancia 23->7
                 red_coords_cm = self._aplicar_correccion_lineal_y(red_coords_cm)
                 blue_coords_cm = self._aplicar_correccion_lineal_y(blue_coords_cm)
+                green_coords_cm = self._aplicar_correccion_lineal_y(green_coords_cm)
                 
                 # Imprimir coordenadas solo cuando sean estables (después de 10 frames)
                 if self.estable_count >= 10 and self.enviar1vez:
                     print("Red Coords (cm, Y corregido):", red_coords_cm)
                     print("Blue Coords (cm, Y corregido):", blue_coords_cm)
+                    print("Green Coords (cm, Y corregido):", green_coords_cm)
                     # Convertir y publicar coordenadas rojas
                     msgR = self.array_to_pose_array(red_coords_cm)
                     self.pub_coordenadasRojas.publish(msgR)
@@ -410,6 +420,9 @@ class GestosNode:
                     # # Convertir y publicar coordenadas azules
                     msgA = self.array_to_pose_array(blue_coords_cm)
                     self.pub_coordenadasAzules.publish(msgA)
+                    
+                    msgV = self.array_to_pose_array(green_coords_cm)
+                    self.pub_coordenadasVerdes.publish(msgV)
                     
                     print("coordenadas enviadas")
 
