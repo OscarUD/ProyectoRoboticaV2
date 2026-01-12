@@ -11,7 +11,7 @@ def detectar_objeto(mask):
     
     for cnt in contours:
         area = cv2.contourArea(cnt)
-        if area > 50: # Usamos un filtro bajo, por ejemplo 50
+        if area > 30:  # Área mínima reducida para detectar mejor
             M = cv2.moments(cnt)
             if M["m00"] != 0:
                 cX = int(M["m10"] / M["m00"])
@@ -183,10 +183,10 @@ def detectar_cubos(img, escala, origen):
     # Rangos de color HSV
     rangos = {
         "azul":  ([85, 40, 20], [135, 255, 255]), 
-        "verde": ([35, 60, 40], [85, 255, 255]) 
+        "verde": ([40, 50, 80], [80, 255, 255])  # V alto para evitar negros/oscuros
     }
 
-    print("\n Buscando cubos...")
+    print("\n🔍 Buscando cubos...")
     
     resultados = []
 
@@ -268,7 +268,7 @@ def detectar_distancia_objetos(undistorted, escala_cm=5.0, distancia_real_entre_
     marcadores = detectar_dos_marcadores(undistorted, marcador_real_cm=escala_cm, 
                                          distancia_real_entre_arucos_cm=distancia_real_entre_arucos_cm)
     if marcadores is None:
-        return undistorted, None, None, None, None, None, None
+        return undistorted, None, None, None, None, None, None, None, None
 
     # Escala promedio de ambos marcadores (más estable)
     escala = (marcadores[23]["scale"] + marcadores[7]["scale"]) / 2
@@ -278,7 +278,7 @@ def detectar_distancia_objetos(undistorted, escala_cm=5.0, distancia_real_entre_
 
     # Dibujar ambos ArUcos
     for marker_id, m in marcadores.items():
-        color = (0, 255, 0) if marker_id == 23 else (0, 255, 255)  # Verde para 23, amarillo para 7
+        color = (0, 255, 255) if marker_id == 23 else (0, 255, 255)  # Verde para 23, amarillo para 7
         cv2.polylines(undistorted, [m["corners"]], True, color, 2)
         c = m["center"].astype(int)
         cv2.circle(undistorted, tuple(c), 4, color, -1)
@@ -294,6 +294,11 @@ def detectar_distancia_objetos(undistorted, escala_cm=5.0, distancia_real_entre_
     upper_red2 = np.array([180, 255, 255])
     mask_red = cv2.inRange(hsv, lower_red1, upper_red1) | cv2.inRange(hsv, lower_red2, upper_red2)
 
+    # Rango para cubo verde #416866 (RGB: 65,104,102 → HSV: H≈89, S≈94, V≈104)
+    lower_green = np.array([75, 60, 60])   # H:75-105 (verde-cyan), S≥60, V≥60
+    upper_green = np.array([105, 180, 180])
+    mask_green = cv2.inRange(hsv, lower_green, upper_green)
+    
     lower_blue = np.array([100, 150, 50])
     upper_blue = np.array([140, 255, 255])
     mask_blue = cv2.inRange(hsv, lower_blue, upper_blue)
@@ -301,9 +306,12 @@ def detectar_distancia_objetos(undistorted, escala_cm=5.0, distancia_real_entre_
     # ==== 3️⃣ Detectar centros ====
     red_center = detectar_objeto(mask_red)
     blue_center = detectar_objeto(mask_blue)
+    green_center = detectar_objeto(mask_green)
 
     all_dist_red_cm = []
     all_dist_blue_cm = []
+    all_dist_green_cm = []
+    
 
     # --- Objetos Rojos ---
     if red_center:
@@ -347,7 +355,28 @@ def detectar_distancia_objetos(undistorted, escala_cm=5.0, distancia_real_entre_
                 0.4, (255, 0, 0), 1
             )
 
-    return undistorted, all_dist_red_cm, all_dist_blue_cm, red_center, blue_center, escala, aruco_center
+    # --- Objetos Azules ---
+    if green_center:
+        for center in green_center:
+            center_tuple = tuple(center.astype(int))
+            cv2.circle(undistorted, center_tuple, 5, (0, 255, 0), -1)
+            cv2.line(undistorted, tuple(aruco_center.astype(int)), center_tuple, (0, 255, 0), 1)
+
+            # Calcular distancias X e Y desde ArUco 23
+            dx_px = center[0] - aruco_center[0]
+            dy_px = center[1] - aruco_center[1]
+            dx_cm = dx_px * escala
+            dy_cm = dy_px * escala
+            dist_cm = np.linalg.norm(center - aruco_center) * escala
+            all_dist_green_cm.append({'x': dx_cm, 'y': dy_cm, 'dist': dist_cm})
+
+            cv2.putText(
+                undistorted, f"X:{dx_cm:.1f} Y:{dy_cm:.1f}cm",
+                (center_tuple[0], center_tuple[1] - 10), cv2.FONT_HERSHEY_SIMPLEX,
+                0.4, (0, 255, 0), 1
+            )
+    
+    return undistorted, all_dist_red_cm, all_dist_blue_cm, all_dist_green_cm, red_center, blue_center, green_center, escala, aruco_center
 
 
 def dibujar_sistema_coordenadas(img, centro_aruco, escala, eje_length_cm=5, rotacion_deg=-85):#-100.5):
@@ -393,6 +422,6 @@ def dibujar_sistema_coordenadas(img, centro_aruco, escala, eje_length_cm=5, rota
                 cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 1)
     
     # Círculo verde en el origen
-    cv2.circle(img, tuple(origin), 5, (0, 255, 0), -1)
+    cv2.circle(img, tuple(origin), 5, (0, 255, 255), -1)
     cv2.putText(img, "O(0,0)", (origin[0]-40, origin[1]-10), 
-                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
+                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 1)
