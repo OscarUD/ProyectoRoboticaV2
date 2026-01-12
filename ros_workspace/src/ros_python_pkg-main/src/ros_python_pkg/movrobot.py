@@ -29,9 +29,12 @@ class ControlRobot:
         
         self.red_pose_array = []   # Para guardar el PoseArray de las rojas
         self.blue_pose_array = []
+        self.green_pose_array = []
         
         self.recibidas_rojas = False
         self.recibidas_azules = False
+        self.recibidas_verdes = False
+        
 
         
         self.sub_rojas = rospy.Subscriber(
@@ -43,6 +46,10 @@ class ControlRobot:
             '/coordenadasAzules', PoseArray, self.callback_azules
         )
         
+        self.sub_verdes = rospy.Subscriber(
+            '/coordenadasVerdes', PoseArray, self.callback_verdes
+        )
+        
         ##self.ganador = rospy.Subscriber('/ganador', Int16, self.callback_ganador)
         
  
@@ -50,13 +57,20 @@ class ControlRobot:
         
         
     def callback_rojas(self, msg: PoseArray):
-        self.red_pose_array = msg.poses
-        self.recibidas_rojas = True
+        if not self.recibidas_rojas:
+            self.red_pose_array = msg.poses
+            self.recibidas_rojas = True
 
     def callback_azules(self, msg: PoseArray):
-        self.blue_pose_array = msg.poses
-        self.recibidas_azules = True
-        
+        if not self.recibidas_azules:
+            self.blue_pose_array = msg.poses
+            self.recibidas_azules = True
+    
+    def callback_verdes(self, msg: PoseArray):
+        if not self.recibidas_verdes:
+            self.green_pose_array = msg.poses
+            self.recibidas_verdes = True
+    
     def callback_ganador(self, msg):
         """ Recibe ganador de ronda (1=jugador1, 2=jugador2)"""
         ganador = msg.data
@@ -73,10 +87,12 @@ class ControlRobot:
     def esperar_y_mostrar_coordenadas(self, posAruco: Pose):
         rospy.loginfo("Esperando coordenadas de fichas...")
         juego = "cubos"
-        contadorR = 0
+        contadorV = 0
         contadorA = 0
         arts_aruco =  [0.9992761611938477,-1.0477239054492493,0.9035361448871058,-1.41451849163089,-1.5649026075946253,-0.707092587147848]
         arts_torre_azul =  [ 2.0560805797576904,1.471076452439167,1.4115451017962855,-1.5421768252602597,-1.5916088263141077,0.3771408796310425]
+        arts_abaco_rojo = [1.3183988332748413,-0.8618126076510926,0.49755889574159795,-1.208068923359253,-1.5649502913104456,-0.19018108049501592]
+        arts_abaco_azul = [1.5276987552642822,-0.8243203920177002,0.5101397673236292,-1.258183316593506,-1.5649545828448694,0.01942265033721924]
         
         pose_torre_azul = data[5]["torre_azul"]
         pose_torre_azul_dict = pose_torre_azul["pose"]
@@ -101,6 +117,7 @@ class ControlRobot:
             print("🔴 Fichas rojas:")
             for i, pose in enumerate(self.red_pose_array):
                 control.mover_articulaciones(arts_aruco)
+                rospy.sleep(1)
                 roja = copy.deepcopy(posAruco)
                 roja.position.x -= pose.position.x 
                 print(pose.position.x )
@@ -115,19 +132,27 @@ class ControlRobot:
                 roja.position.y += y_corr
                 print(y_corr)
                 control.mover_trayectoria([roja])
+                rospy.sleep(1)
                 control.mover_pinza(60, 10)
+                rospy.sleep(1)
                 roja.position.z -= movPinza
                 control.mover_trayectoria([roja])
+                rospy.sleep(1)
                 control.mover_pinza(5, 10)
-                roja.position.z += movPinza
+                rospy.sleep(1)
+                roja.position.z += movPinza + 0.08
                 control.mover_trayectoria([roja])
+                rospy.sleep(1)
                 
-                if juego == "cubos":
-                    control.mover_articulaciones(arts_aruco)
-                else:
-                    control.mover_articulaciones(arts_aruco)
+                if juego != "cubos":
+                    control.mover_articulaciones(arts_abaco_rojo)
+                    rospy.sleep(1)
+                    pos = self.pose_actual()
+                    pos.position.z -= 0.034
+                    control.mover_trayectoria([pos])
+                    rospy.sleep(1)
                 control.mover_pinza(60, 10)
-                contadorR += 1
+                rospy.sleep(1)
                 print(f"  Roja {i+1}: x={pose.position.x:}, y={pose.position.y:}")
         
         if self.blue_pose_array:
@@ -167,13 +192,57 @@ class ControlRobot:
                     control.mover_trayectoria([pos])
                     rospy.sleep(1)
                 else:
-                    control.mover_articulaciones(arts_aruco)
+                    control.mover_articulaciones(arts_abaco_azul)
+                    rospy.sleep(1)
+                    pos = self.pose_actual()
+                    pos.position.z -= 0.017
+                    control.mover_trayectoria([pos])
                     rospy.sleep(1)
                 control.mover_pinza(60, 10)
                 rospy.sleep(1)
                 contadorA += 1
                 print(f"  Azul {i+1}: x={pose.position.x:}, y={pose.position.y:}")
 
+        if self.green_pose_array:
+            print("🟢 Fichas verdes:")
+            for i, pose in enumerate(self.green_pose_array):
+                print(f"  Verde {i+1}: x={pose.position.x:}, y={pose.position.y:}")
+                
+            for i, pose in enumerate(self.green_pose_array):
+                verde = copy.deepcopy(posAruco)
+                verde.position.x -= pose.position.x 
+                # Corrección Y proporcional a la distancia hacia el QR 7 (máx 1 cm)
+                bx, by = 0.38, 0.155  # baseline 23->7 en metros (38 cm, 15.5 cm)
+                L = math.hypot(bx, by)
+                ux, uy = bx / L, by / L
+                proj = ux * pose.position.x + uy * pose.position.y
+                t = max(0.0, min(1.0, proj / L))
+                bias = -0.052
+                y_corr = pose.position.y + bias * t
+                verde.position.y += y_corr 
+                control.mover_trayectoria([verde])
+                rospy.sleep(1)
+                control.mover_pinza(60, 10)
+                rospy.sleep(1)
+                verde.position.z -= movPinza
+                control.mover_trayectoria([verde])
+                rospy.sleep(1)
+                control.mover_pinza(5, 10)
+                rospy.sleep(1)
+                verde.position.z += movPinza
+                control.mover_trayectoria([verde])
+                rospy.sleep(1)
+                if juego == "cubos":
+                    control.mover_trayectoria([pos_tAzul])
+                    rospy.sleep(1)
+                    pos = self.pose_actual()
+                    pos.position.z -= 0.077 - contadorV*0.025
+                    control.mover_trayectoria([pos])
+                    rospy.sleep(1)
+                control.mover_pinza(60, 10)
+                rospy.sleep(1)
+                contadorV += 1
+                print(f"  Verde {i+1}: x={pose.position.x:}, y={pose.position.y:}")
         print("==============================\n")
 
     
@@ -288,7 +357,7 @@ class ControlRobot:
 
     def añadir_suelo(self) -> None:
         pose_suelo = Pose()
-        pose_suelo.position.z = -0.026
+        pose_suelo.position.z = -0.04
         self.añadir_caja_a_escena_de_planificacion(pose_suelo,"suelo",(2,2,.05))
 
     def dict_a_pose(self, pose_dict):
