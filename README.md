@@ -1,64 +1,74 @@
-# Robótica y Automatización Inteligente - Entorno de desarrollo
+# Robótica y Automatización Inteligente - Entorno de desarrollo ROS y demostrador de juegos por gestos
 
-Este repositorio proporciona un entorno de trabajo basado en ROS (Robot Operating System) para la asignatura de Robótica y Automatización Inteligente del Máster de Computación y Sistemas Inteligentes en la Universidad de Deusto. El entorno está empaquetado en contenedores Docker para asegurar la portabilidad y facilidad de uso.
+Este reporistorio proporciona, por un lado, un entorno de trabajo basado en ROS empaquetado en contendores Docker para la asignatura de Robótica y Automatización Inteligente. Por otro lado, contiene el codigo de un demostrador de interacción humano-robot en que varios usuarios juegan a Piedra-Papel-Tijera y Vaqueros mediantes gestos de la mano mientras un robot manipulador mueve bloques y fichas sobre una mesa.<br> 
+El proyecto se apoya en Movelt! para aplanificar las trayeatorias, en nodos de visión artificial para el reconocimiento de gestos y localización de fichas, y en nodos especificos de control para coodinar el movimiento del brazo y la lógica de los juegos. 
+
 
 ## Herramientas Utilizadas
+En el host se requieren al menos las siguientes herramientas: 
+1. Docker: ejecución de contendores.
+2. Visual Studio Code + extensión *Dev Containers*: desarrollo direntamente dentro del contendor.
+3. Git: colnación y gestión del repositorio
+4. (Opcional, Linux con GPU NVIDIA) NVIDIA Container Toolkit para el perfil con aceleración gráfica. 
 
-Antes de comenzar, asegúrate de tener instaladas las siguientes herramientas:
+## Perfiles de contendor
+El repositorio define varios pefiles de ejecución en *docker-compose* (pueden variar segun el fork)
+|Pefil| Uso principal| Requisitos|
+|-----|--------------| ----------| 
+|desktop|Entorno de escrtotio vía web (no VNC) con ROS | Cualquier SO con Docker| 
+| local| Entorno local sin GPU, pensado para laboratorio| Host Linux/WSL con servidor X |
+|local gpu|Entorno local con soporte GPU (aceleración hardware) |Linux + X + NVIDIA + nvidia-container-toolkit| 
 
-1. [Docker](https://www.docker.com/get-started): Docker es una plataforma para desarrollar, ejecutar y enviar aplicaciones dentro de contenedores. Puedes seguir [estas instrucciones](https://docs.docker.com/get-docker/) para instalar Docker en tu sistema.
+## Descripción de nodos ROS del proyecto 
+A continuación se describe la parte específica del demostrados de juegos por gestos y manipulación de fichas. 
 
-2. [Visual Studio Code](https://code.visualstudio.com/): Utilizaremos VSCode para desarrollar dentro de los contenedores utilizando la extensión de [Remote - Containers](https://code.visualstudio.com/docs/remote/containers). Puedes instalar VSCode desde [aquí](https://code.visualstudio.com/download).
+### Nodo WEBCAM (cámara jugadores y cámara robot)
+- **Función**: adquiere en tiempo real las imágenes de la cámara USB orientada hacia los jugaodres y las publica como un flujo de imágenes en bruto.
+- **Paquete**: nodo basado en *usb_cam* lanzado desde los ficheros *.launch* del proyecto
+- **Topics**:
+    - Publica: /usb_cam/image_raw
+- **Uso**: tosos los nodos de visión que detectan manos y gestos se suscriben a este topic sin acceder directamente al dispositivo de vídeo físico.
 
-3. [Extensión Remote - Containers de VSCode](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-containers): Permite conectar VSCode a entornos de desarrollo que se ejecutan en contenedores Docker. Puedes instalarla desde el [marketplace de VSCode](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-containers).
+### Nodo GESTOS (interacción y lógica de juegos)
+- **Función**: módulo de interacción humano-maquina. Gestiona la captura de imagen de la cámara de jugaodres, detecta mano y clasfica los gestos. Permite seleccionar el juego mediante gestos y ejecuta la lógica completa de las partidad.
+- **Estados Principales**:
+  - *gameselector*: el usuario selecciona el juego apuntando a la cámara (1 dedo --> Vaqueros, 2 dedos --> PPTLS, puño --> salir)
+  - *Vaqueros*: juego de disparos; cada jugador realiza gestos de Recargar, Disparar, Protegerse o Bomba, y el nodo actualiza las balas y puntaciones aplicando reglas definidas.
+  - *PPTLS*: Juego de Piedra-Papel-Tijera-Lagarto-Spock; se gestiona una máquina de estado con cuenta atras, detección de gestos estables y detección de trampas (cambos tardíos de gesto o mano ausente)
+- **Topics**:
+    -   suscribe: /camara1/usb_cam/image_raw 
+    -   publica: /juego (indicar que juego esta activo) & /ganador (indicar que jugador ha ganado cada ronda)
+- **Integración robótica**: A partir de los gestos detectados, el nodo decide el resultado de las rondas y genera información (juego seleccionado, ganador de ronda) que consumirá el nodo de control del robot para mover fichas del color correspondiente.
 
-4. [Git](https://git-scm.com/): Git es un sistema de control de versiones que utilizaremos para clonar este repositorio y gestionar versiones de código. Sigue [estas instrucciones](https://git-scm.com/book/en/v2/Getting-Started-Installing-Git) para instalar Git en tu sistema.
+### Nodo DETECTOR 
+- **Función**: ecibe las imágenes de la cámara orientada a la zona de trabajo del robot, calcula la posición de las fichas rojas y azules en la mesa y publica esas posiciones para que el manipulador pueda planificar movimientos hacia ellas.
+- **Topics**:
+    - suscribe: /camara2/usb_cam/image_raw
+    - publica: /coordenadas_rojas (coordenadas de las fichas rojas) , /coordenadas_azules (coordenadas de las fichas azules) & /coordenadas_verdes (coordenadas de las fichas verdes)
+- **Uso**: Obtiene el estado actual del robot y añade objetos al plano para que se tengan en cuenta y evitar colisiones. Además carga las posiciones de referencia como la pose del marcador ArUco. 
 
+### Nodo CENTRAL 
+- **Función**: Actuar como núcleo de coordinación del sistema, conectando el módulo de gestos, el módulo de detección de fichas y el controlador del robot.
+- **Topics**:
+    - suscribe: /juego , /ganador (por parte del nodo gestos)  & /coordenadas_azule, /coordenadas_rojas , /coordenadas_verdes (por parte de la detección de fichas en el tablero)
+- **Uso**: Orquestar el movimiento del manipulador: decidir qué ficha debe moverse (color del ganador), desde qué posición y hacia qué destino (pila de cubos o ábaco) y ejecutar las trayestorias correpondientes. Mantener el estado global de la demostración (ronda actual, número de fichas movidas, cambio de juego, reinicio de partida) y garantizar que la secuencia “detectar gestos → decidir ganador → mover robot” se ejecuta de forma ordenada y segura.
 
-Opcionalmente, si trabajas en Linux, tienes una tarjeta gráfica NVIDIA y tu distribución utiliza el sistema de ventanas basado en X, puedes conseguir aceleración por GPU instalando:
-
--  [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html): Si planeas utilizar GPU para tus aplicaciones, necesitarás el soporte de GPU en Docker. Sigue la [guía de instalación de NVIDIA](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html) para habilitar esta funcionalidad.
-
-## Requisitos del Sistema
-
-- **Linux/macOS/Windows**: Docker y VSCode son compatible con todas estas plataformas, aunque algunas características pueden variar.
-- **GPU** (opcional): Para aprovechar la aceleración de hardware, asegúrate de tener una GPU NVIDIA compatible y los drivers instalados.
-
-## Contenedores Disponibles
-
-Este repositorio incluye los siguientes contenedores:
-
-1. **desktop**: Un entorno de escritorio accesible vía web (noVNC) con ROS instalado. Este contenedor funciona en cualquier SO y HW que tenga Docker instalado.
-2. **local_gpu**: Un entorno local con soporte para GPU, optimizado para trabajos en el laboratorio.
-3. **local**: Un entorno local sin soporte para GPU, para usar en entornos sin aceleración de hardware.
-
-Los contenedores 2 y 3 están desarrollados para ser utilizados en los PCs del laboratorio de robótica. Sólo se pueden utilizar si se cumplen los siguientes requisitos:
-- El sistema operativo host es Linux (o WSL).
-- El sistema operativo host utiliza el sistema de ventanas X.
-- (versión GPU) El sistema tiene una gráfica NVIDIA con el nvidia-container-toolkit y sus drivers instalados.
-
-Para el uso personal fuera del laboratorio se recomienda utilizar el contenedor **desktop**.
-## Instalación
-
+## Instalación y ejecución básica 
 ### 1. Clonar este repositorio
-
 Clona este repositorio en tu máquina local:
-
 ```bash
-git clone https://github.com/ignacioDeusto/ros1_mucsi.git
+git clone https://github.com/OscarUD/ProyectoRoboticaV2.git
 ```
 ```bash
 cd ros1_mucsi
 ```
-
 ### 2. Construir la imagen de los contenedores
-Depende del contenedor que se quiera utilizar, construir uno u otro (`local`, `local_gpu`, `desktop`). Se recomienda utilizar utilizar el contenedor `desktop` para uso personal y `local_gpu` en el laboratorio.
-
-Una vez elegido el contenedor ejecutar:
+Depende del contenedor que se quiera utilizar, construir uno u otro (`local`, `local_gpu`, `desktop`)
 ```bash
 docker compose --profile <nombre_contenedor_elegido> build
 ```
 Cuando acabe el proceso ya se dispondrá de la imagen construida en el sistema.
+
 ### 3. Lanzar el contenedor
 Una vez construida la imagen es posible crear contenedores a partir de ella. En este caso los contenedores están diseñados para utilizarlos como entornos de desarrollo. Se recomienda crear y utilizar un solo contenedor. Para esto ejecutar:
 ```bash
@@ -66,24 +76,13 @@ docker compose --profile <nombre_contenedor_elegido> up
 ```
 Una vez lanzado, la terminal se mantendrá ejecutando el contenedor hasta que se pare. Para pararlo basta con enviar una señal de terminación `ctrl`+`c`.
 
-Es posible y recomendable gestionar el lanzamiento y parada de los contenedores desde la extensión remote de VSCode. Para gestionar la parada y lanzamiento de los contenedores ya creados desde VSCode:
-<p align="center">
-    <img src="pictures/encender_contenedor.gif" alt="lanzar">
-</p>
-
 ### 4. Acceso al contenedor
 Es posible acceder al contenedor creado de varias maneras:
-- Si el contenedor utilizado es el `desktop`, desde cualquier navegador se puede acceder a él en [esta dirección](http://localhost:6081). **La contraseña es laboratorio**. En esta dirección se sirve un escritorio funcional completo.
+- Si el contenedor utilizado es el `desktop`, desde cualquier navegador se puede acceder a él en [esta dirección](http://localhost:6081). **La contraseña es laboratorio**. 
 - Para todos los contenedores se recomienda asociar una instancia de VSCode al contenedor utilizando la extension "remote explorer". Esto permite desarrollar en VSCode como si se trabajara en local, pero ejecutando todo en el contenedor.
-
-Incluso si se utiliza el contenedor `desktop` se recomienda desarrollar y lanzar todo desde VSCode y utilizar el escritorio para ver la salida gráfica del sistema. Para conectarse al contenedor desde VSCode:
-<p align="center">
-    <img src="pictures/conectarse_contenedor_vscode.gif" alt="Conectarse">
-</p>
-
+  
 ### 5. Primeros pasos en ROS
 Dentro de los contenedores se incluye un espacio de trabajo de ROS con todos los elementos necesarios para poder trabajar con los robots del laboratorio.
-
 Antes de poder utilizarlos es necesario construir el espacio de trabajo base. Para construir el espacio de trabajo:
 
 1. Conectarse al contenedor desde una instancia de VSCode.
@@ -125,10 +124,3 @@ roslaunch launcher_robots_lab_robotica sim_203.launch
 ```
 Esto debería ejecutar todos los nodos necesarios para poder controlar uno de los Universal Robots en simulación. Debería aparecer una interfaz gráfica en la que se muestra el robot y si se selecciona el grupo de planificación `robot`, debería permitir moverlo a diferentes posiciones, planificar y ejecutar trayectorias.
 
-El control de los robots se realizará utilizando el framework MoveIt! que abstrae los topics de ROS y proporciona funcionalidades para planificar y ejecutar trayectorias además de gestionar la escena de planificación. Se puede encontrar documentación extensa de su API de Python [aquí](https://moveit.github.io/moveit_tutorials/doc/move_group_python_interface/move_group_python_interface_tutorial.html).
-### Aspectos a considerar en el desarrollo
-
-- Todo lo que se instale, ejecute y modifique a partir de la creación se pierde si el contenedor se elimina. Si el contenedor se para en vez de eliminarlo, mantendrán todas las modificaciones hechas cuando se vuelva a lanzar.
-- Los contenedores comparten un directorio con el host. Todo cambio que se haga en este desde el contenedor se verá reflejado en el host y viceversa. Este directorio en el contenedor es: `/home/laboratorio/ros_workspace` y en el host depende de donde y cómo se haya creado el contenedor.
-- No confundir el host con el contenedor (estarán en instancias separadas de VSCode).
-- No lanzar docker compose down. Si se lanza, el contenedor se eliminará.
