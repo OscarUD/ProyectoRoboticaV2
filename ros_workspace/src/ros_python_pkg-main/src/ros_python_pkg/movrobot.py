@@ -163,7 +163,7 @@ class ControlRobot:
             ux, uy = bx / L, by / L
             proj = ux * pose.position.x + uy * pose.position.y
             t = max(0.0, min(1.0, proj / L))
-            bias = -0.048
+            bias = -0.018
             y_corr = pose.position.y + bias * t
             roja.position.y += y_corr
             print(y_corr)
@@ -206,7 +206,7 @@ class ControlRobot:
             ux, uy = bx / L, by / L
             proj = ux * pose.position.x + uy * pose.position.y
             t = max(0.0, min(1.0, proj / L))
-            bias = -0.048
+            bias = -0.018
             y_corr = pose.position.y + bias * t
             azul.position.y += y_corr 
             self.mover_trayectoria([azul])
@@ -254,7 +254,7 @@ class ControlRobot:
             ux, uy = bx / L, by / L
             proj = ux * pose.position.x + uy * pose.position.y
             t = max(0.0, min(1.0, proj / L))
-            bias = -0.048
+            bias = -0.018
             y_corr = pose.position.y + bias * t
             verde.position.y += y_corr 
             self.mover_trayectoria([verde])
@@ -270,10 +270,11 @@ class ControlRobot:
             self.mover_trayectoria([verde])
             rospy.sleep(1)
             if self.juego == 1:
+                pos_tVerde.position.z += 0.05
                 self.mover_trayectoria([pos_tVerde])
                 rospy.sleep(1)
                 pos = self.pose_actual()
-                pos.position.z -= 0.045 - self.contadorV*0.025
+                pos.position.z -= 0.095 - self.contadorV*0.025
                 self.mover_trayectoria([pos])
                 rospy.sleep(1)
             self.mover_pinza(60, 10)
