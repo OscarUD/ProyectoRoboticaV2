@@ -4,6 +4,10 @@ Este reporistorio proporciona, por un lado, un entorno de trabajo basado en ROS 
 El proyecto se apoya en Movelt! para aplanificar las trayeatorias, en nodos de visión artificial para el reconocimiento de gestos y localización de fichas, y en nodos especificos de control para coodinar el movimiento del brazo y la lógica de los juegos. 
 
 
+## Carpeta de Videos - Google Drive
+Este es el enlace para la carpeta con los vídeos de demostración:
+[Carpeta de Google Drive](https://drive.google.com/drive/folders/1Z0qd25EpyFbYNNn5FtRPNERZplNrirHf?usp=drive_link)
+
 ## Herramientas Utilizadas
 En el host se requieren al menos las siguientes herramientas: 
 1. Docker: ejecución de contendores.
