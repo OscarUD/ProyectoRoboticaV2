@@ -59,9 +59,6 @@ Clona este repositorio en tu máquina local:
 ```bash
 git clone https://github.com/OscarUD/ProyectoRoboticaV2.git
 ```
-```bash
-cd ros1_mucsi
-```
 ### 2. Construir la imagen de los contenedores
 Depende del contenedor que se quiera utilizar, construir uno u otro (`local`, `local_gpu`, `desktop`)
 ```bash
