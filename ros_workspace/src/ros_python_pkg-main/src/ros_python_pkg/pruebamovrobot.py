@@ -68,26 +68,40 @@ class ControlRobot:
 if __name__ == '__main__':
     control = ControlRobot()
     
+    # Mover el robot a posición inicial con articulaciones
+   
+    control.mover_articulaciones([0, -pi/2, -pi/2, -pi/2, pi/2, 0])
+    
     # Pose inicial del efector
-    pose_aruco = control.pose_actual()
+    pose_inicio = control.pose_actual()
     articulaciones = control.articulaciones_actuales()
+    
+  
+    nombre = "Pose ARUCO"
+    with open("./src/ros_python_pkg-main/src/ros_python_pkg/posiciones.yaml", "+a") as file:
+        # yaml.dump(pose_dict, file)
+        yaml.dump([{nombre:{"pose":pose_inicio,"articulaciones":articulaciones}}], file)
 
-    # Convertir Pose a diccionario
-    pose_dict = {
-        "position": {
-            "x": pose_aruco.position.x,
-            "y": pose_aruco.position.y,
-            "z": pose_aruco.position.z
-        },
-        "orientation": {
-            "x": pose_aruco.orientation.x,
-            "y": pose_aruco.orientation.y,
-            "z": pose_aruco.orientation.z,
-            "w": pose_aruco.orientation.w
-        }
-    }
+    print("Posición inicial guardada en posiciones.yaml")
+    
+    # Pose final (movimiento en línea recta)
+    pose_final = copy.deepcopy(pose_inicio)
+    pose_final.position.x += 0.2  # 20 cm adelante
+    pose_final.position.y += 0.1  # 10 cm a la derecha
 
-    # Guardar articulaciones y pose como diccionario
-    nombre = "torre_verde"
-    with open("./src/ros_python_pkg-main/src/ros_python_pkg/posiciones.yaml", "a") as file:
-        yaml.dump([{nombre: {"pose": pose_dict, "articulaciones": articulaciones}}], file)
+    # Crear lista de poses intermedias para suavizar trayectoria
+    num_puntos = 10
+    poses = []
+    for i in range(1, num_puntos + 1):
+        pose_intermedia = copy.deepcopy(pose_inicio)
+        pose_intermedia.position.x += (pose_final.position.x - pose_inicio.position.x) * i / num_puntos
+        pose_intermedia.position.y += (pose_final.position.y - pose_inicio.position.y) * i / num_puntos
+        pose_intermedia.position.z += (pose_final.position.z - pose_inicio.position.z) * i / num_puntos
+        poses.append(pose_intermedia)
+    
+    # Mover el robot siguiendo la línea
+    control.mover_trayectoria(poses)
+    
+
+    
+    print("Movimiento completado")

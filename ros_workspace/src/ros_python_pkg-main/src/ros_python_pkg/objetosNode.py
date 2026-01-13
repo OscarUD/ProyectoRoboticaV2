@@ -55,7 +55,7 @@ class GestosNode:
         self.numFramesEstables = 60  
         self.enviar1vez = True
 
-        # Corrección lineal de Y hacia el ArUco 7
+        # Corcción lineal de Y hacia el ArUco 7
         try:
             bx = rospy.get_param("~baseline_x_cm", 38.0)
             by = rospy.get_param("~baseline_y_cm", 15.5)

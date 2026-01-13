@@ -10,6 +10,7 @@ from control_msgs.msg import GripperCommandAction, GripperCommandGoal, GripperCo
 from actionlib import SimpleActionClient
 from tf.transformations import quaternion_from_euler
 from typing import List
+from std_msgs.msg import Int16
 import yaml
 from math import pi
 import copy
@@ -31,11 +32,20 @@ class ControlRobot:
         self.blue_pose_array = []
         self.green_pose_array = []
         
+        self.contadorV = 0
+        self.contadorR = 0
+        self.contadorA = 0
+        
         self.recibidas_rojas = False
         self.recibidas_azules = False
         self.recibidas_verdes = False
         
-
+        self.ganador = -1
+        self.juego = -1
+        
+        rospy.Subscriber('/juego', Int16, self.callback_juego)
+        
+        rospy.Subscriber('/ganador', Int16, self.callback_ganador)        
         
         self.sub_rojas = rospy.Subscriber(
             '/coordenadasRojas', PoseArray, self.callback_rojas
@@ -50,11 +60,29 @@ class ControlRobot:
             '/coordenadasVerdes', PoseArray, self.callback_verdes
         )
         
-        ##self.ganador = rospy.Subscriber('/ganador', Int16, self.callback_ganador)
-        
- 
         self.añadir_suelo()
         
+        with open("./src/ros_python_pkg-main/src/ros_python_pkg/posiciones.yaml", "r") as file:
+            data = yaml.safe_load(file)
+        
+        self.arts_aruco =  [0.9992761611938477,-1.0477239054492493 ,0.9035361448871058,-1.41451849163089 ,-1.5649026075946253, -0.707092587147848]
+        self.arts_torre_azul =  [ 2.0560805797576904,1.471076452439167,1.4115451017962855,-1.5421768252602597,-1.5916088263141077,0.3771408796310425]
+            
+        pose_aruco = data[0]["pose_aruco"]
+        pose_caja1 = data[1]["pose_caja1"]
+        pose_caja2 = data[2]["pose_caja2"]
+        
+        pose_aruco_dict = pose_aruco["pose"]
+        pose_caja1_dict = pose_caja1["pose"]
+        pose_caja2_dict = pose_caja2["pose"]
+        
+        pos1 = self.dict_a_pose(pose_caja1_dict)
+        pos2 = self.dict_a_pose(pose_caja2_dict)
+        
+        self.añadir_caja_a_escena_de_planificacion(pos1, "caja1", (2,.1,.4))
+        self.añadir_caja_a_escena_de_planificacion(pos2, "caja2", (.05,.08,.8))
+        
+        self.posAruco = self.dict_a_pose(pose_aruco_dict)
         
     def callback_rojas(self, msg: PoseArray):
         if not self.recibidas_rojas:
@@ -71,213 +99,190 @@ class ControlRobot:
             self.green_pose_array = msg.poses
             self.recibidas_verdes = True
     
-    def callback_ganador(self, msg):
-        """ Recibe ganador de ronda (1=jugador1, 2=jugador2)"""
-        ganador = msg.data
+    def callback_juego(self, msg):
+        """ Recibe juego del selector (0=VAQUEROS, 1=PPTLS)"""
+        self.juego = msg.data
         
-        if ganador == 1:
-            rospy.loginfo("¡JUGADOR 1 GANA RONDA! → Mover ficha ROJA")
-            #self.mover_ficha_jugador1()  #  Mueve ficha roja
-        elif ganador == 2:
-            rospy.loginfo("¡JUGADOR 2 GANA RONDA! → Mover ficha AZUL") 
-            #self.mover_ficha_jugador2()  #  Mueve ficha azul
+        if self.juego == 0:
+            self.movPinza = 0.072
+            rospy.loginfo("JUEGO VAQUEROS SELECCIONADO")
+        elif self.juego == 1:
+            self.movPinza = 0.06
+            rospy.loginfo("JUEGO PPTLS SELECCIONADO") 
+
+    def callback_ganador(self, msg):
+        self.ganador = msg.data
+        if self.ganador in [1,2]:
+            rospy.loginfo(f"GANADOR RONDA: Jugador {self.ganador}")
         else:
             rospy.loginfo("Empate - Sin movimiento")
         
-    def esperar_y_mostrar_coordenadas(self, posAruco: Pose):
-        rospy.loginfo("Esperando coordenadas de fichas...")
-        juego = "cubos"
-        contadorV = 0
-        contadorA = 0
-        arts_aruco =  [0.9992761611938477,-1.0477239054492493,0.9035361448871058,-1.41451849163089,-1.5649026075946253,-0.707092587147848]
-        arts_torre_azul =  [ 2.0560805797576904,1.471076452439167,1.4115451017962855,-1.5421768252602597,-1.5916088263141077,0.3771408796310425]
+    def mover_ficha(self):
+        
+        if self.juego == -1:
+            return
+        if self.ganador == -1:
+            return
+        if not (self.recibidas_rojas and self.recibidas_azules):
+            return
+        
+        self.mover_articulaciones(self.arts_aruco)
+        
         arts_abaco_rojo = [1.3183988332748413,-0.8618126076510926,0.49755889574159795,-1.208068923359253,-1.5649502913104456,-0.19018108049501592]
         arts_abaco_azul = [1.5276987552642822,-0.8243203920177002,0.5101397673236292,-1.258183316593506,-1.5649545828448694,0.01942265033721924]
         
         pose_torre_azul = data[5]["torre_azul"]
         pose_torre_azul_dict = pose_torre_azul["pose"]
+        pose_torre_verde = data[6]["torre_verde"]
+        pose_torre_verde_dict = pose_torre_verde["pose"]
         pos_tAzul = control.dict_a_pose(pose_torre_azul_dict)
+        pos_tVerde = control.dict_a_pose(pose_torre_verde_dict)
         
         rate = rospy.Rate(10)
         while not rospy.is_shutdown():
             if self.recibidas_rojas and self.recibidas_azules:
                 break
             rate.sleep()
-
-        if juego == "cubos":
-            movPinza = 0.06
-        else:
-            movPinza = 0.072
         
         print("\n==============================")
         print("📍 Coordenadas recibidas")
         print("==============================")
 
-        if self.red_pose_array:
+        if self.ganador == 1 and self.juego == 0:
             print("🔴 Fichas rojas:")
-            for i, pose in enumerate(self.red_pose_array):
-                control.mover_articulaciones(arts_aruco)
+            pose = self.red_pose_array[0]
+            print(f"  Roja {self.contadorR+1}: x={pose.position.x:}, y={pose.position.y:}")
+            self.red_pose_array.pop(0)
+            rospy.sleep(1)
+            roja = copy.deepcopy(self.posAruco)
+            roja.position.x -= pose.position.x 
+            print(pose.position.x )
+            # Corrección Y proporcional a la distancia hacia el QR 7 (máx 1 cm)
+            bx, by = 0.38, 0.155  # baseline 23->7 en metros (38 cm, 15.5 cm)
+            L = math.hypot(bx, by)
+            ux, uy = bx / L, by / L
+            proj = ux * pose.position.x + uy * pose.position.y
+            t = max(0.0, min(1.0, proj / L))
+            bias = -0.048
+            y_corr = pose.position.y + bias * t
+            roja.position.y += y_corr
+            print(y_corr)
+            self.mover_trayectoria([roja])
+            rospy.sleep(1)
+            self.mover_pinza(60, 10)
+            rospy.sleep(1)
+            roja.position.z -= self.movPinza
+            self.mover_trayectoria([roja])
+            rospy.sleep(1)
+            self.mover_pinza(5, 10)
+            rospy.sleep(1)
+            roja.position.z += self.movPinza + 0.08
+            self.mover_trayectoria([roja])
+            rospy.sleep(1)
+            
+            if self.juego == 0:
+                self.mover_articulaciones(arts_abaco_rojo)
                 rospy.sleep(1)
-                roja = copy.deepcopy(posAruco)
-                roja.position.x -= pose.position.x 
-                print(pose.position.x )
-                # Corrección Y proporcional a la distancia hacia el QR 7 (máx 1 cm)
-                bx, by = 0.38, 0.155  # baseline 23->7 en metros (38 cm, 15.5 cm)
-                L = math.hypot(bx, by)
-                ux, uy = bx / L, by / L
-                proj = ux * pose.position.x + uy * pose.position.y
-                t = max(0.0, min(1.0, proj / L))
-                bias = -0.052
-                y_corr = pose.position.y + bias * t
-                roja.position.y += y_corr
-                print(y_corr)
-                control.mover_trayectoria([roja])
-                rospy.sleep(1)
-                control.mover_pinza(60, 10)
-                rospy.sleep(1)
-                roja.position.z -= movPinza
-                control.mover_trayectoria([roja])
-                rospy.sleep(1)
-                control.mover_pinza(5, 10)
-                rospy.sleep(1)
-                roja.position.z += movPinza + 0.08
-                control.mover_trayectoria([roja])
+                pos = self.pose_actual()
+                pos.position.z -= 0.034
+                self.mover_trayectoria([pos])
                 rospy.sleep(1)
                 
-                if juego != "cubos":
-                    control.mover_articulaciones(arts_abaco_rojo)
-                    rospy.sleep(1)
-                    pos = self.pose_actual()
-                    pos.position.z -= 0.034
-                    control.mover_trayectoria([pos])
-                    rospy.sleep(1)
-                control.mover_pinza(60, 10)
-                rospy.sleep(1)
-                print(f"  Roja {i+1}: x={pose.position.x:}, y={pose.position.y:}")
+            self.mover_pinza(60, 10)
+            rospy.sleep(1)
+            self.contadorR += 1
         
-        if self.blue_pose_array:
+        if self.ganador == 2:
             print("🔵 Fichas azules:")
-            for i, pose in enumerate(self.blue_pose_array):
-                print(f"  Azul {i+1}: x={pose.position.x:}, y={pose.position.y:}")
-                
-            for i, pose in enumerate(self.blue_pose_array):
-                azul = copy.deepcopy(posAruco)
-                azul.position.x -= pose.position.x 
-                # Corrección Y proporcional a la distancia hacia el QR 7 (máx 1 cm)
-                bx, by = 0.38, 0.155  # baseline 23->7 en metros (38 cm, 15.5 cm)
-                L = math.hypot(bx, by)
-                ux, uy = bx / L, by / L
-                proj = ux * pose.position.x + uy * pose.position.y
-                t = max(0.0, min(1.0, proj / L))
-                bias = -0.052
-                y_corr = pose.position.y + bias * t
-                azul.position.y += y_corr 
-                control.mover_trayectoria([azul])
+            
+            pose = self.blue_pose_array[0]
+            print(f"  Azul {self.contadorA+1}: x={pose.position.x:}, y={pose.position.y:}")
+            self.blue_pose_array.pop(0)
+            azul = copy.deepcopy(self.posAruco)
+            azul.position.x -= pose.position.x 
+            # Corrección Y proporcional a la distancia hacia el QR 7 (máx 1 cm)
+            bx, by = 0.38, 0.155  # baseline 23->7 en metros (38 cm, 15.5 cm)
+            L = math.hypot(bx, by)
+            ux, uy = bx / L, by / L
+            proj = ux * pose.position.x + uy * pose.position.y
+            t = max(0.0, min(1.0, proj / L))
+            bias = -0.048
+            y_corr = pose.position.y + bias * t
+            azul.position.y += y_corr 
+            self.mover_trayectoria([azul])
+            rospy.sleep(1)
+            self.mover_pinza(60, 10)
+            rospy.sleep(1)
+            azul.position.z -= self.movPinza
+            self.mover_trayectoria([azul])
+            rospy.sleep(1)
+            self.mover_pinza(5, 10)
+            rospy.sleep(2)
+            azul.position.z += self.movPinza
+            self.mover_trayectoria([azul])
+            rospy.sleep(1)
+            if self.juego == 1:
+                self.mover_trayectoria([pos_tAzul])
                 rospy.sleep(1)
-                control.mover_pinza(60, 10)
+                pos = self.pose_actual()
+                pos.position.z -= 0.077 - self.contadorA*0.025
+                self.mover_trayectoria([pos])
                 rospy.sleep(1)
-                azul.position.z -= movPinza
-                control.mover_trayectoria([azul])
+            else:
+                self.mover_articulaciones(arts_abaco_azul)
                 rospy.sleep(1)
-                control.mover_pinza(5, 10)
+                pos = self.pose_actual()
+                pos.position.z -= 0.017
+                self.mover_trayectoria([pos])
                 rospy.sleep(1)
-                azul.position.z += movPinza
-                control.mover_trayectoria([azul])
-                rospy.sleep(1)
-                if juego == "cubos":
-                    control.mover_trayectoria([pos_tAzul])
-                    rospy.sleep(1)
-                    pos = self.pose_actual()
-                    pos.position.z -= 0.077 - contadorA*0.025
-                    control.mover_trayectoria([pos])
-                    rospy.sleep(1)
-                else:
-                    control.mover_articulaciones(arts_abaco_azul)
-                    rospy.sleep(1)
-                    pos = self.pose_actual()
-                    pos.position.z -= 0.017
-                    control.mover_trayectoria([pos])
-                    rospy.sleep(1)
-                control.mover_pinza(60, 10)
-                rospy.sleep(1)
-                contadorA += 1
-                print(f"  Azul {i+1}: x={pose.position.x:}, y={pose.position.y:}")
+            self.mover_pinza(60, 10)
+            rospy.sleep(1)
+            self.contadorA += 1
 
-        if self.green_pose_array:
+        if self.ganador == 1 and self.juego == 1:
             print("🟢 Fichas verdes:")
-            for i, pose in enumerate(self.green_pose_array):
-                print(f"  Verde {i+1}: x={pose.position.x:}, y={pose.position.y:}")
-                
-            for i, pose in enumerate(self.green_pose_array):
-                verde = copy.deepcopy(posAruco)
-                verde.position.x -= pose.position.x 
-                # Corrección Y proporcional a la distancia hacia el QR 7 (máx 1 cm)
-                bx, by = 0.38, 0.155  # baseline 23->7 en metros (38 cm, 15.5 cm)
-                L = math.hypot(bx, by)
-                ux, uy = bx / L, by / L
-                proj = ux * pose.position.x + uy * pose.position.y
-                t = max(0.0, min(1.0, proj / L))
-                bias = -0.052
-                y_corr = pose.position.y + bias * t
-                verde.position.y += y_corr 
-                control.mover_trayectoria([verde])
+            
+            pose = self.green_pose_array[0]
+            print(f"  Verde {self.contadorV+1}: x={pose.position.x:}, y={pose.position.y:}")      
+            self.green_pose_array.pop(0)
+            
+            verde = copy.deepcopy(self.posAruco)
+            verde.position.x -= pose.position.x 
+            # Corrección Y proporcional a la distancia hacia el QR 7 (máx 1 cm)
+            bx, by = 0.38, 0.155  # baseline 23->7 en metros (38 cm, 15.5 cm)
+            L = math.hypot(bx, by)
+            ux, uy = bx / L, by / L
+            proj = ux * pose.position.x + uy * pose.position.y
+            t = max(0.0, min(1.0, proj / L))
+            bias = -0.048
+            y_corr = pose.position.y + bias * t
+            verde.position.y += y_corr 
+            self.mover_trayectoria([verde])
+            rospy.sleep(1)
+            self.mover_pinza(60, 10)
+            rospy.sleep(1)
+            verde.position.z -= self.movPinza
+            self.mover_trayectoria([verde])
+            rospy.sleep(1)
+            self.mover_pinza(5, 10)
+            rospy.sleep(1)
+            verde.position.z += self.movPinza
+            self.mover_trayectoria([verde])
+            rospy.sleep(1)
+            if self.juego == 1:
+                self.mover_trayectoria([pos_tVerde])
                 rospy.sleep(1)
-                control.mover_pinza(60, 10)
+                pos = self.pose_actual()
+                pos.position.z -= 0.045 - self.contadorV*0.025
+                self.mover_trayectoria([pos])
                 rospy.sleep(1)
-                verde.position.z -= movPinza
-                control.mover_trayectoria([verde])
-                rospy.sleep(1)
-                control.mover_pinza(5, 10)
-                rospy.sleep(1)
-                verde.position.z += movPinza
-                control.mover_trayectoria([verde])
-                rospy.sleep(1)
-                if juego == "cubos":
-                    control.mover_trayectoria([pos_tAzul])
-                    rospy.sleep(1)
-                    pos = self.pose_actual()
-                    pos.position.z -= 0.077 - contadorV*0.025
-                    control.mover_trayectoria([pos])
-                    rospy.sleep(1)
-                control.mover_pinza(60, 10)
-                rospy.sleep(1)
-                contadorV += 1
-                print(f"  Verde {i+1}: x={pose.position.x:}, y={pose.position.y:}")
+            self.mover_pinza(60, 10)
+            rospy.sleep(1)
+            self.contadorV += 1
+        
+        self.ganador = -1
+        print(self.ganador)
         print("==============================\n")
-
-    
-    import math
-
-    def desplazamiento_corregido(x, y, destino_x, destino_y):
-        """
-        Calcula el desplazamiento en x e y considerando el ángulo entre X y Y.
-        
-        Args:
-            x, y: Coordenadas del punto actual (X)
-            destino_x, destino_y: Coordenadas del punto objetivo (Y)
-        
-        Returns:
-            dx, dy: Desplazamiento corregido en x e y
-            distancia: distancia lineal entre X y Y
-            angulo: ángulo entre X->Y en radianes
-        """
-        # Vector de X a Y
-        vx = destino_x - x
-        vy = destino_y - y
-        
-        # Distancia lineal
-        distancia = math.sqrt(vx**2 + vy**2)
-        
-        # Ángulo del vector
-        angulo = math.atan2(vy, vx)  # devuelve en radianes
-        
-        # Desplazamiento corregido en dirección del ángulo
-        dx = distancia * math.cos(angulo)
-        dy = distancia * math.sin(angulo)
-        
-        return dx, dy, distancia, angulo
-
-
 
     def articulaciones_actuales(self) -> list:
         return self.move_group.get_current_joint_values()
@@ -292,45 +297,6 @@ class ControlRobot:
         self.move_group.set_pose_target(pose_goal)
         return self.move_group.go(wait=wait)
     
-    def generar_trayectoria_lineal(self, pose_inicio: Pose, pose_fin: Pose, num_puntos: int = 20) -> list:
-        """
-        Genera una lista de poses linealmente interpoladas entre pose_inicio y pose_fin.
-
-        Args:
-            pose_inicio (Pose): Pose inicial.
-            pose_fin (Pose): Pose final.
-            num_puntos (int): Número de poses intermedias (incluyendo inicio y fin).
-
-        Returns:
-            List[Pose]: Lista de poses interpoladas.
-        """
-        # Convertir posiciones a arrays
-        pos_ini = np.array([pose_inicio.position.x, pose_inicio.position.y, pose_inicio.position.z])
-        pos_fin = np.array([pose_fin.position.x, pose_fin.position.y, pose_fin.position.z])
-
-        # Convertir orientaciones a arrays
-        ori_ini = np.array([pose_inicio.orientation.x, pose_inicio.orientation.y,
-                            pose_inicio.orientation.z, pose_inicio.orientation.w])
-        ori_fin = np.array([pose_fin.orientation.x, pose_fin.orientation.y,
-                            pose_fin.orientation.z, pose_fin.orientation.w])
-
-        # Interpolación lineal de posiciones
-        posiciones = np.linspace(pos_ini, pos_fin, num_puntos)
-
-        # Interpolación lineal de orientaciones (simple LERP, para pequeñas rotaciones sirve)
-        orientaciones = np.linspace(ori_ini, ori_fin, num_puntos)
-
-        # Generar lista de Pose
-        lista_poses = []
-        for i in range(num_puntos):
-            pose = Pose()
-            pose.position.x, pose.position.y, pose.position.z = posiciones[i]
-            pose.orientation.x, pose.orientation.y, pose.orientation.z, pose.orientation.w = orientaciones[i]
-            lista_poses.append(copy.deepcopy(pose))
-
-        control.mover_trayectoria(lista_poses)
-
-
     def mover_trayectoria(self, poses: List[Pose], wait: bool = True) -> bool:
         # Copiar la lista de poses y añadir la pose actual al inicio
         poses_aux = copy.deepcopy(poses)
@@ -390,30 +356,15 @@ if __name__ == '__main__':
     with open("./src/ros_python_pkg-main/src/ros_python_pkg/posiciones.yaml", "r") as file:
         data = yaml.safe_load(file)
     
-    arts_aruco =  [0.9992761611938477,-1.0477239054492493 ,0.9035361448871058,-1.41451849163089 ,-1.5649026075946253, -0.707092587147848]
-        
-    pose_aruco = data[0]["pose_aruco"]
-    pose_caja1 = data[1]["pose_caja1"]
-    pose_caja2 = data[2]["pose_caja2"]
-    
-    pose_aruco_dict = pose_aruco["pose"]
-    pose_caja1_dict = pose_caja1["pose"]
-    pose_caja2_dict = pose_caja2["pose"]
-    
-    pos1 = control.dict_a_pose(pose_caja1_dict)
-    pos2 = control.dict_a_pose(pose_caja2_dict)
-    
-    control.añadir_caja_a_escena_de_planificacion(pos1, "caja1", (2,.1,.4))
-    control.añadir_caja_a_escena_de_planificacion(pos2, "caja2", (.05,.08,.8))
-    
-    posAruco = control.dict_a_pose(pose_aruco_dict)
-   
-    #control.mover_pinza(60, 10)
-    #control.mover_pinza(0, 10)
-    #control.mover_articulaciones(arts_aruco)
-    
-    #control.mover_pinza(20, 20)
-    control.esperar_y_mostrar_coordenadas(posAruco)
+    rate = rospy.Rate(10)
+    while not rospy.is_shutdown():
+        control.mover_ficha()
+        if control.contadorR >= 3 or control.contadorA >= 3 or control.contadorV >= 3:
+            control.mover_articulaciones(control.arts_aruco)
+            rospy.sleep(2)
+            rospy.signal_shutdown("Fin de la partida")
+        rate.sleep()
+
     
     '''
     with open("./src/ros_python_pkg-main/src/ros_python_pkg/posiciones.yaml", "r") as file:

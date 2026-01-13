@@ -18,6 +18,7 @@ class PrincipalNode:
         self.pub_cmd_vel = rospy.Publisher('/cmd_vel', Twist, queue_size=10)
         
         # Lista de objetos detectados (rojo=jugador1, azul=jugador2)
+  
         self.objetos_rojos = []  # Fichas jugador 1
         self.objetos_azules = [] # Fichas jugador 2
         
@@ -81,8 +82,10 @@ class PrincipalNode:
 
     def actualizar_objetos(self, rojos_cm, azules_cm):
         """Actualizar lista de objetos desde nodo de detección"""
-        self.objetos_rojos = rojos_cm or []
-        self.objetos_azules = azules_cm or []
+        if  self.objetos_rojos == []:
+            self.objetos_rojos = rojos_cm
+        if  self.objetos_azules == []:
+            self.objetos_azules = azules_cm
 
 if __name__ == '__main__':
     try:
