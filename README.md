@@ -5,8 +5,7 @@ El proyecto se apoya en Movelt! para aplanificar las trayeatorias, en nodos de v
 
 
 ## Carpeta de Videos - Google Drive
-Este es el enlace para ver el vídeo de demostración:
-[Video en Google Drive]https://drive.google.com/file/d/1quo6R7cpigFSMUeRCN0t47HbaDI6fEz3/view?usp=sharing
+Este es el enlace para ver el vídeo de demostración: https://drive.google.com/file/d/1quo6R7cpigFSMUeRCN0t47HbaDI6fEz3/view?usp=sharing
 
 ## Herramientas Utilizadas
 En el host se requieren al menos las siguientes herramientas: 
